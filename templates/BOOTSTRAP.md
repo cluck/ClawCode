@@ -51,7 +51,7 @@ Then:
 - **If QMD is installed** → use `AskUserQuestion` with options: *"Enable QMD (better memory — local embeddings + semantic search, recommended)"* / *"Use built-in (works fine, no setup)"*. Write `agent-config.json` per their choice using the **Bash heredoc pattern below** (NOT the `Write` tool — `agent-config.json` is on the always-on protected-paths list and direct `Write` is refused).
 
 - **If QMD is not installed** → tell them once, no question:
-  > "I'm using built-in search (FTS5 + BM25) which works well. For even better memory with semantic understanding, you can install QMD later (`bun install -g qmd`) and run `/agent:settings` to enable it."
+  > "I'm using built-in search (FTS5 + BM25) which works well. For even better memory with semantic understanding, you can install QMD later (`bun install -g @tobilu/qmd`) and run `/agent:settings` to enable it."
 
   Write the built-in config via the Bash heredoc pattern below.
 

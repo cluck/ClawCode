@@ -53,7 +53,7 @@ Show defaults:
    ```
    Install QMD (local-first search tool, no API keys needed):
    
-   bun install -g qmd
+   bun install -g @tobilu/qmd
    # or download from https://github.com/tobi/qmd/releases
    ```
 

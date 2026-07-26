@@ -32,7 +32,7 @@ All local. All offline after the one-time model download (~100 MB).
 ## Install
 
 ```
-bun install -g qmd
+bun install -g @tobilu/qmd
 ```
 
 Or see [github.com/tobi/qmd/releases](https://github.com/tobi/qmd/releases) for binary downloads.
@@ -40,7 +40,7 @@ Or see [github.com/tobi/qmd/releases](https://github.com/tobi/qmd/releases) for 
 Verify:
 
 ```
-qmd --version
+bun --version
 ```
 
 First run downloads the embedding model — takes a minute, cached permanently at `~/.cache/qmd/`.
@@ -180,7 +180,7 @@ You can't literally run both backends for the same query — `memory.backend` is
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| `/agent:doctor` shows QMD `❌ binary not found` | `qmd` not in PATH, or different command name | Install via `bun install -g qmd`, or set `memory.qmd.command` to the absolute path |
+| `/agent:doctor` shows QMD `❌ binary not found` | `qmd` not in PATH, or different command name | Install via `bun install -g @tobilu/qmd`, or set `memory.qmd.command` to the absolute path |
 | Queries fall back to builtin silently | QMD timeout or error | Check logs, increase `limits.timeoutMs`, try `searchMode: "search"` for speed |
 | First search takes 60s+ | Model download in progress | One-time. Subsequent queries fast. |
 | `agent_status` shows `QMD (vsearch)` but results look keyword-ish | QMD serving fallback internally | Restart with `/mcp`, check memory has been indexed |

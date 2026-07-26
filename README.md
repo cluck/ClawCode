@@ -164,7 +164,7 @@ Full details: [`docs/hooks.md`](docs/hooks.md)
 
 The agent writes to `memory/YYYY-MM-DD.md` during sessions and searches it automatically at the start of every turn — no need to say "search memory." Bilingual (Spanish ↔ English, 40+ synonym pairs), date-aware ("hoy" resolves to today's date), and safety-critical (warns about allergies before suggesting food). Trivial messages (greetings, "ok", slash commands) skip the search — no wasted context.
 
-Two backends: **builtin** (SQLite + FTS5, works out of the box) and **QMD** (local embeddings for semantic search — install with `bun install -g qmd`).
+Two backends: **builtin** (SQLite + FTS5, works out of the box) and **QMD** (local embeddings for semantic search — install with `bun install -g @tobilu/qmd`).
 
 Full details: [`docs/memory.md`](docs/memory.md) · [`docs/memory-context.md`](docs/memory-context.md) · [`docs/qmd.md`](docs/qmd.md)
 

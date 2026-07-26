@@ -249,7 +249,7 @@ export function checkQmd(workspace: string): DiagnosticCheck {
       label: "QMD",
       status: "error",
       message: `backend=qmd but binary "${qmdCommand}" not found in PATH`,
-      hint: "Install with `bun install -g qmd` or set memory.qmd.command",
+      hint: "Install with `bun install -g @tobilu/qmd` or set memory.qmd.command",
     };
   }
 
