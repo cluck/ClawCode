@@ -11,6 +11,8 @@ export PATH="$HOME/.local/bin:$HOME/bin:/usr/local/bin:/opt/homebrew/bin:$PATH"
 
 AGENT_ROOT="${CLAUDE_PROJECT_DIR:-$PWD}"
 MEMORY_DIR="$AGENT_ROOT/memory"
+RECONCILING_MARKER="$MEMORY_DIR/.reconciling"
+MAX_RECONCILE_AGE_SEC=600
 REGISTRY="$MEMORY_DIR/crons.json"
 LOCK_DIR="$MEMORY_DIR/.crons-lock"
 ERRORS_LOG="$MEMORY_DIR/crons-errors.jsonl"
@@ -52,14 +54,13 @@ _parse_local_to_epoch() { # "YYYY-MM-DD HH:MM" (host-local time)
 # whoever runs set-alive/audit next (e.g. a routine LIST). Stale markers are
 # left alone; cron-pretool removes them on its next gated call.
 _refresh_reconciling_if_fresh() {
-  local marker="$MEMORY_DIR/.reconciling"
-  [[ -f "$marker" ]] || return 0
+  [[ -f "$RECONCILING_MARKER" ]] || return 0
   local marker_mtime now_s age
-  marker_mtime=$(stat -f %m "$marker" 2>/dev/null || stat -c %Y "$marker" 2>/dev/null || echo 0)
+  marker_mtime=$(date -r "$RECONCILING_MARKER" +%s 2>/dev/null || echo 0)
   now_s=$(date +%s)
   age=$((now_s - marker_mtime))
-  if [[ $age -ge 0 && $age -lt 600 ]]; then
-    touch "$marker" 2>/dev/null || true
+  if [[ $age -ge 0 && $age -lt $MAX_RECONCILE_AGE_SEC ]]; then
+    touch "$RECONCILING_MARKER" 2>/dev/null || true
   fi
 }
 
