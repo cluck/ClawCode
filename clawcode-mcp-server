@@ -5,14 +5,13 @@ SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && \
 
 declare -i fdo=1 fde=2 logfh=2
 
+: ${LOCAL_PLUGIN_NAME:=${SCRIPT_DIR##*/}}
+: ${LOCAL_MARKETPLACE:=$(jq -r '.["name"]' ${SCRIPT_DIR}/../../marketplace.json)}
 : ${CLAUDE_PLUGIN_ROOT:=$SCRIPT_DIR}
-: ${CLAUDE_PLUGIN_DATA:="$HOME/.claude/plugins/data/ClawCode-aibubble"}
+: ${CLAUDE_PLUGIN_DATA:="$HOME/.claude/plugins/data/${LOCAL_PLUGIN_NAME}-${LOCAL_MARKETPLACE}"}
 
 read -r PACKAGE_NAME < <(jq -r '.["name"]'    "$CLAUDE_PLUGIN_ROOT"/package.json)
 read -r PACKAGE_VER  < <(jq -r '.["version"]' "$CLAUDE_PLUGIN_ROOT"/package.json)
-
-: ${LOCAL_MARKETPLACE:=$(jq -r '.["name"]' ${SCRIPT_DIR}/../../marketplace.json)}
-: ${LOCAL_PLUGIN_NAME:=${CLAUDE_PLUGIN_ROOT##*/}}
 
 read -r LOCAL_PLUGIN_CACHE < <(env -C "$HOME"/.claude/plugins \
          "V=${PACKAGE_VER}" "N=${PACKAGE_NAME}" \
@@ -20,7 +19,6 @@ read -r LOCAL_PLUGIN_CACHE < <(env -C "$HOME"/.claude/plugins \
          "$HOME"/.claude/plugins/installed_plugins.json )
 
 mkdir -p "${CLAUDE_PLUGIN_DATA}/logs"
-#echo "${CLAUDE_PLUGIN_DATA}/logs/${SCRIPT_NAME}.log"
 
 exec {fdo}>&1 {fde}>&2  # save real stdio fds
 exec {logfh}>>"${CLAUDE_PLUGIN_DATA}/logs/${SCRIPT_NAME}.log"
