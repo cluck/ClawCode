@@ -1,0 +1,119 @@
+#!/bin/bash
+SCRIPT_NAME=${0##*/}
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && \
+                     cd -- "$(dirname -- "$(readlink "${SCRIPT_NAME}")")" && pwd)
+
+declare -i fdo=1 fde=2 logfh=2
+
+: ${CLAUDE_PLUGIN_ROOT:=$SCRIPT_DIR}
+: ${CLAUDE_PLUGIN_DATA:="$HOME/.claude/plugins/data/ClawCode-aibubble"}
+
+read -r PACKAGE_NAME < <(jq -r '.["name"]'    "$CLAUDE_PLUGIN_ROOT"/package.json)
+read -r PACKAGE_VER  < <(jq -r '.["version"]' "$CLAUDE_PLUGIN_ROOT"/package.json)
+
+: ${LOCAL_MARKETPLACE:=$(jq -r '.["name"]' ${SCRIPT_DIR}/../../marketplace.json)}
+: ${LOCAL_PLUGIN_NAME:=${CLAUDE_PLUGIN_ROOT##*/}}
+
+read -r LOCAL_PLUGIN_CACHE < <(env -C "$HOME"/.claude/plugins \
+         "V=${PACKAGE_VER}" "N=${PACKAGE_NAME}" \
+         jq -r '.["plugins"]["ClawCode@aibubble"].[] | select(.version == env.V) | .["installPath"]' \
+         "$HOME"/.claude/plugins/installed_plugins.json )
+
+mkdir -p "${CLAUDE_PLUGIN_DATA}/logs"
+#echo "${CLAUDE_PLUGIN_DATA}/logs/${SCRIPT_NAME}.log"
+
+exec {fdo}>&1 {fde}>&2  # save real stdio fds
+exec {logfh}>>"${CLAUDE_PLUGIN_DATA}/logs/${SCRIPT_NAME}.log"
+exec 1>&${logfh} 2>&${logfh}
+
+function notice () {
+    echo "[clawcode] $@" >&${fde}
+    [ $logfh -le 2 ] || echo "[clawcode] $@" >&${logfh}
+}
+
+ENVDEBUG="${CLAUDE_PLUGIN_DATA:-${TMPDIR:-${TEMP:-/tmp}}}/${USER}_${SCRIPT_NAME}.env"
+if [ "${CLAUDECODE:-0}" -gt 0 ] ; then    # save/restore real claude env (for debugging)
+    { cat <<EOF
+# Command: $0 $@
+# Workdir: `pwd`
+# Started: `date`
+# Envfile: ${ENVDEBUG}
+EOF
+    env ; } | tee "${ENVDEBUG}"
+else
+    if [ ! -f "$ENVDEBUG" ] ; then
+        while : ; do
+            notice 'Human: warning: no environment from claude saved yet!'
+            echo 'Human: continue? [yN] ' >&${fde}
+            [ -t 0 ] || exit 1
+            ret=0 ; read -srt 10 -N 1 -u 0 choice || ret=$?
+            case $ret in
+            0)
+                    [[ $choice != $'\e' ]] || { read -srt .01 buffer ; choice+=${buffer} ; }
+                    case $choice in
+                    [yY]|$'\n')   notice 'Human: continuing' ; break ;;
+                    [nNqQ]|$'\e') notice 'Human: quitting' ; exit 1 ;;
+                    esac
+                    notice "Human: invalid option ${choice@Q}"
+                    ;;
+            142)    notice "Human: quitting (timeout)" ; exit 142 ;;
+            *)      notice "Human: quitting (unexpected return $ret)" ; exit 2 ;; # ??
+            esac
+        done
+    else
+        . <(xargs printf 'declare -x %q\n' < <(grep -v '^#' "$ENVDEBUG"))
+    fi
+fi
+
+set -e
+
+npmcmd=( npm --no-fund
+    --install-strategy=nested
+    --omit=dev --include=prod
+    --allow-remote=all --allow-git=none --allow-file=all
+    #--dangerously-allow-all-scripts
+)
+
+LOCAL_PLUGIN_CACHE=${LOCAL_PLUGIN_CACHE:-"$HOME/.claude/plugins/cache/${LOCAL_MARKETPLACE}/${LOCAL_PLUGIN_NAME}/${PACKAGE_VER}"}
+mkdir -p "${LOCAL_PLUGIN_CACHE}"
+
+# firstRunNoted='no' firstRunNotice=$'[clawcode] Installing dependency tsx (first run)...\n'
+if [ ! -e "${LOCAL_PLUGIN_CACHE}"/.npmrc ] ; then
+    #printf '%s' "${firstRunNoted:+"${firstRunNotice}"}" ; firstRunNoted=
+    notice 'Installing dependency .npmrc (first run)...'
+    cat >"${LOCAL_PLUGIN_CACHE}/.npmrc" <<'EOF'
+# --allow-scripts=onnxruntime-node,esbuild,protobufjs,sharp,better-sqlite3 \
+ignore-scripts=true
+EOF
+fi
+if [ ! -e "${LOCAL_PLUGIN_CACHE}"/node_modules/.bin/tsx ] ; then
+    notice 'Installing dependency tsx (first run)...'
+    "${npmcmd[@]}" install --prefix="${LOCAL_PLUGIN_CACHE}" "tsx"
+    env -C "${LOCAL_PLUGIN_CACHE}" npm audit || exit $?
+fi
+
+if [ ! -e "${LOCAL_PLUGIN_CACHE}"/node_modules/clawcode/server.ts ] ; then
+    notice 'Installing dependency clawcode (first run)...'
+    cat >"${LOCAL_PLUGIN_CACHE}/.npmrc" <<'EOF'
+# --allow-scripts=onnxruntime-node,esbuild,protobufjs,sharp,better-sqlite3 \
+ignore-scripts=true
+EOF
+    "${npmcmd[@]}" install --prefix="${LOCAL_PLUGIN_CACHE}" --install-links "file://${CLAUDE_PLUGIN_ROOT}" || \
+    env -C "${LOCAL_PLUGIN_CACHE}" npm audit || exit $?
+fi
+
+if [ ! -f "${LOCAL_PLUGIN_CACHE}"/node_modules/.bin/tsx ]; then
+    notice 'ERROR: npm install failed. Check Node.js v18+ is installed: node --version'
+    notice "Try manually: npm install --prefix=${LOCAL_PLUGIN_CACHE@Q} openclaw@${CLAUDE_PLUGIN_ROOT@Q}"
+    exit 1
+fi
+
+notice "Starting execution"
+
+# Stop logging and restore original stdio fds
+exec 1>&$fdo 2>&$fde {fdo}>&- {fde}>&- {logfh}>&-
+fdo=1 fde=2 logfh=2
+
+# TODO: get command line from package.json or .mcp.json ?
+exec "${LOCAL_PLUGIN_CACHE}"/node_modules/.bin/tsx "${LOCAL_PLUGIN_CACHE}"/node_modules/clawcode/server.ts
+

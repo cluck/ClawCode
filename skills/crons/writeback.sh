@@ -370,14 +370,42 @@ cmd_set_alive() {
   _refresh_reconciling_if_fresh
 }
 
+# Parses one CronList line into _pl_id / _pl_cron / _pl_recurring / _pl_prompt.
+# Returns 1 if the line matches no known harness shape (format drift).
+# Accepted shapes:
+#   v1: "<8hex-id> — <cron-expr> (recurring|one-shot) [session-only|durable]: <prompt>"
+#   v2: "<8hex-id> — <human schedule> (recurring|one-shot): <prompt>"
+#       (Claude Code ~2.1.284+: e.g. "Every 30 minutes (recurring): Run /agent:heartbeat")
+# v2 no longer prints the cron expression, so _pl_cron is EMPTY for it —
+# callers must never treat the human schedule text as a cron.
+_parse_cronlist_line() {
+  local line="$1" kind
+  _pl_id="" _pl_cron="" _pl_recurring="" _pl_prompt=""
+  if [[ "$line" =~ ^([0-9a-f]{8})\ —\ (.+)\ \((recurring|one-shot)\)\ \[(session-only|durable)\]:\ (.+)$ ]]; then
+    _pl_id="${BASH_REMATCH[1]}"
+    _pl_cron="${BASH_REMATCH[2]}"
+    kind="${BASH_REMATCH[3]}"
+    _pl_prompt="${BASH_REMATCH[5]}"
+  elif [[ "$line" =~ ^([0-9a-f]{8})\ —\ ([^()]+)\ \((recurring|one-shot)\):\ (.+)$ ]]; then
+    _pl_id="${BASH_REMATCH[1]}"
+    kind="${BASH_REMATCH[3]}"
+    _pl_prompt="${BASH_REMATCH[4]}"
+  else
+    return 1
+  fi
+  [[ "$kind" == "recurring" ]] && _pl_recurring="true" || _pl_recurring="false"
+  return 0
+}
+
 cmd_audit() {
   # Mechanical diff of CronList output (stdin) against the registry.
   # This is the completion check Issue #32 asked for: the agent-executed
   # reconcile can partially fail (turn budget, interleaved chat, per-entry
   # errors), and until now nothing verified the post-reconcile state.
   #
-  # stdin contract: the FULL CronList output — one line per alive job
-  #   "<8hex-id> — <cron-expr> (recurring|one-shot) [session-only|durable]: <prompt>"
+  # stdin contract: the FULL CronList output — one line per alive job in
+  # either shape accepted by _parse_cronlist_line (v1 with cron expr, v2
+  # with a human schedule and no cron expr),
   # or the literal "No scheduled jobs.". STRICT: blank stdin and any
   # unparseable non-empty line are format drift (exit 4, nothing persisted) —
   # a broken pipe must never mark every reminder orphaned.
@@ -388,6 +416,9 @@ cmd_audit() {
   #     matches EXACTLY ONE unclaimed live row — and is itself the only
   #     orphan with that triple — gets that row's id instead of a recreate
   #     (handles "CronCreate succeeded, set-alive never ran").
+  #     When CronList is v2 (no cron expr), live rows carry cron=null and
+  #     matching degrades to (prompt,recurring); twins are grouped by the
+  #     same looser key, so any ambiguity turns into BLOCKED, never a guess.
   #   - BLOCKED (never guess, never auto-recreate): an orphaned entry whose
   #     triple matches ≥1 unclaimed live row but can't be relinked
   #     unambiguously (multiple candidates, or multiple orphan twins). Auto-
@@ -429,16 +460,10 @@ cmd_audit() {
     while IFS= read -r line; do
       line="${line%$'\r'}"
       [[ -z "${line//[[:space:]]/}" ]] && continue
-      if [[ "$line" =~ ^([0-9a-f]{8})\ —\ (.+)\ \((recurring|one-shot)\)\ \[(session-only|durable)\]:\ (.+)$ ]]; then
-        local task_id="${BASH_REMATCH[1]}"
-        local cron_expr="${BASH_REMATCH[2]}"
-        local kind="${BASH_REMATCH[3]}"
-        local cron_prompt="${BASH_REMATCH[5]}"
-        local rec="false"
-        [[ "$kind" == "recurring" ]] && rec="true"
-        rows_jsonl+=$(jq -nc --arg id "$task_id" --arg cron "$cron_expr" \
-          --arg prompt "$cron_prompt" --argjson recurring "$rec" \
-          '{id:$id,cron:$cron,prompt:$prompt,recurring:$recurring}')$'\n'
+      if _parse_cronlist_line "$line"; then
+        rows_jsonl+=$(jq -nc --arg id "$_pl_id" --arg cron "$_pl_cron" \
+          --arg prompt "$_pl_prompt" --argjson recurring "$_pl_recurring" \
+          '{id:$id,cron:(if $cron == "" then null else $cron end),prompt:$prompt,recurring:$recurring}')$'\n'
       else
         log_error "audit: harness shape drift: unparseable CronList line"
         echo "writeback.sh audit: harness shape drift — a non-empty line did not match the CronList contract:" >&2
@@ -455,6 +480,9 @@ cmd_audit() {
   local updated
   updated=$(jq --argjson live "$live_rows" --arg now "$now" '
     def triple(e): {cron: e.cron, prompt: e.prompt, recurring: e.recurring};
+    # v2 CronList hides the cron expr: fall back to (prompt,recurring).
+    ($live | any(.cron == null)) as $blind |
+    def matchkey(e): if $blind then {prompt: e.prompt, recurring: e.recurring} else triple(e) end;
     ($live | map(.id)) as $liveIds |
     ([.entries[].harnessTaskId | select(. != null)]) as $claimed |
     ([.entries[] | select(.paused == false and .tombstone == null)]) as $active |
@@ -466,8 +494,8 @@ cmd_audit() {
           .lastSeenAlive = $now
         else
           triple(.) as $t |
-          ([$orphans[] | select(triple(.) == $t)]) as $twins |
-          ([$unclaimed[] | select(.cron == $t.cron and .prompt == $t.prompt and .recurring == $t.recurring)]) as $cands |
+          ([$orphans[] | select(matchkey(.) == matchkey($t))]) as $twins |
+          ([$unclaimed[] | select((.cron == null or .cron == $t.cron) and .prompt == $t.prompt and .recurring == $t.recurring)]) as $cands |
           if (($twins | length) == 1 and ($cands | length) == 1) then
             .harnessTaskId = $cands[0].id | .lastSeenAlive = $now | ._relinked = true
           elif (($cands | length) >= 1) then
@@ -555,17 +583,24 @@ cmd_adopt_unknown() {
     [[ -z "$line" ]] && continue
     line_count=$((line_count + 1))
 
-    # Expected: <8hex> — <cron> (recurring|one-shot) [session-only|durable]: <prompt>
-    if [[ "$line" =~ ^([0-9a-f]{8})\ —\ (.+)\ \((recurring|one-shot)\)\ \[(session-only|durable)\]:\ (.+)$ ]]; then
+    # Expected: any shape accepted by _parse_cronlist_line (v1 or v2)
+    if _parse_cronlist_line "$line"; then
       matched_count=$((matched_count + 1))
-      local task_id="${BASH_REMATCH[1]}"
-      local cron_expr="${BASH_REMATCH[2]}"
-      local kind="${BASH_REMATCH[3]}"
-      local cron_prompt="${BASH_REMATCH[5]}"
-      local recurring_bool
-      [[ "$kind" == "recurring" ]] && recurring_bool="true" || recurring_bool="false"
+      local task_id="$_pl_id"
+      local cron_expr="$_pl_cron"
+      local cron_prompt="$_pl_prompt"
+      local recurring_bool="$_pl_recurring"
 
       if jq -e --arg id "$task_id" '.entries | any(.harnessTaskId == $id)' "$REGISTRY" >/dev/null; then
+        continue
+      fi
+
+      # v2 CronList carries no cron expr — adopting would register an entry
+      # reconcile can never recreate. Skip it and tell the user how to
+      # register it explicitly instead.
+      if [[ -z "$cron_expr" ]]; then
+        log_error "adopt-unknown: skipped $task_id (CronList shows no cron expression)"
+        echo "adopt-unknown: skipped $task_id — CronList no longer shows its cron expression; register it with: writeback.sh upsert --source ad-hoc --cron <expr> --prompt \"$cron_prompt\" --recurring $recurring_bool, then set-alive --harness-task-id $task_id" >&2
         continue
       fi
 

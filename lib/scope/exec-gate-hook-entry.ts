@@ -98,7 +98,7 @@ async function main(): Promise<number> {
     );
     return 2;
   }
-  const pluginRoot = process.env.CLAUDE_PLUGIN_ROOT ?? path.resolve(__dirname, "..", "..");
+  const pluginRoot = process.env.CLAUDE_PLUGIN_DATA ?? path.resolve(__dirname, "..", "..");
   const memoryDir = path.join(workspaceRoot, "memory");
 
   // Build ArmedChannel[] from config + runtime. Same path the in-process

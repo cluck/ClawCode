@@ -191,7 +191,7 @@ Probed `CronCreate` / `CronList` / `CronDelete` schemas + live calls:
 1. **Full Cron\* tool surface:** exactly three tools exist — `CronCreate`, `CronList`, `CronDelete`.
 2. **`CronCreate` main description contradicts its `durable` parameter.** Main text says *"nothing is written to disk"*; the flag claims to persist. Empirical check confirms the main description is authoritative.
 3. **`CronCreate` response format:** `Scheduled <recurring|one-shot> job <8hex-id> (<cron-expr>). Session-only (not written to disk, dies when Claude exits). Auto-expires after 7 days. Use CronDelete to cancel sooner.`
-4. **`CronList` response format (text, one line per job):** `<8hex-id> — <cron-expr> (recurring|one-shot) [session-only|durable]: <prompt>`. Empty = the literal string `No scheduled jobs.`.
+4. **`CronList` response format (text, one line per job):** `<8hex-id> — <human schedule> (recurring|one-shot): <prompt>`. Empty = the literal string `No scheduled jobs.`. The old format is still supported but deprecated: `<8hex-id> — <cron-expr> (recurring|one-shot) [session-only|durable]: <prompt>`.
 5. **Task IDs are 8 hex chars** (~4B namespace).
 6. **`CronList` includes the full `prompt`** → adoption is lossless.
 7. **Recurring tasks auto-expire after 7 days** in the harness. Reconcile recreates them.

@@ -1609,7 +1609,7 @@ async function main() {
     );
     return 2;
   }
-  const pluginRoot = process.env.CLAUDE_PLUGIN_ROOT ?? import_node_path8.default.resolve(__dirname, "..", "..");
+  const pluginRoot = process.env.CLAUDE_PLUGIN_DATA ?? import_node_path8.default.resolve(__dirname, "..", "..");
   const memoryDir = import_node_path8.default.join(workspaceRoot, "memory");
   const armed = [];
   const protectedChannelDirs = [];
